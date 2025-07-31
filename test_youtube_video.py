@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-class YouTubeVideoAnalyzer:
+class VideoAnalyzer:
     def __init__(self, api_key=None):
         """Initialize the Gemini client"""
         # Priority: command line arg > env variable > default
@@ -111,6 +111,69 @@ CÂU HỎI:
         response = model.generate_content(prompt)
         return response.text
 
+    def analyze_local_video(self, video_path, analysis_type="summary", sentences=3):
+        """Analyze local video file using Gemini API"""
+        print(f"\n🎥 Analyzing local video: {os.path.basename(video_path)}")
+        
+        if not os.path.exists(video_path):
+            raise FileNotFoundError(f"Video file not found: {video_path}")
+        
+        # Get file size to determine upload method
+        file_size = os.path.getsize(video_path)
+        file_size_mb = file_size / (1024 * 1024)
+        
+        model = genai.GenerativeModel(self.model_name)
+        
+        # Choose prompt based on analysis type
+        if analysis_type == "summary":
+            prompt = f"Hãy tóm tắt video này bằng tiếng Việt trong {sentences} câu. Mô tả nội dung chính, các hoạt động và thông tin quan trọng."
+        elif analysis_type == "transcript":
+            prompt = "Hãy tạo phiên bản văn bản (transcript) chi tiết của video này bằng tiếng Việt, bao gồm cả mô tả hình ảnh và âm thanh."
+        elif analysis_type == "topics":
+            prompt = "Liệt kê các chủ đề và khái niệm chính trong video này. Trình bày dưới dạng danh sách với giải thích ngắn gọn bằng tiếng Việt."
+        elif analysis_type == "detailed":
+            prompt = "Hãy phân tích chi tiết video này bằng tiếng Việt, bao gồm: nội dung chính, các bước/hành động, công cụ được sử dụng, và mục đích của video."
+        else:
+            prompt = "Hãy phân tích và mô tả nội dung của video này bằng tiếng Việt."
+        
+        try:
+            if file_size_mb > 20:
+                # Use File API for large files
+                print(f"📁 Uploading large file ({file_size_mb:.1f}MB) using File API...")
+                uploaded_file = genai.upload_file(video_path)
+                
+                # Wait for the file to be processed
+                import time
+                print("⏳ Waiting for file to be processed...")
+                while uploaded_file.state.name == "PROCESSING":
+                    print(".", end="", flush=True)
+                    time.sleep(2)
+                    uploaded_file = genai.get_file(uploaded_file.name)
+                
+                if uploaded_file.state.name == "FAILED":
+                    raise Exception("File processing failed")
+                
+                print("\n✅ File ready for analysis")
+                response = model.generate_content([uploaded_file, prompt])
+            else:
+                # Use inline data for smaller files
+                print(f"📁 Processing file ({file_size_mb:.1f}MB) using inline data...")
+                with open(video_path, 'rb') as video_file:
+                    video_data = video_file.read()
+                
+                response = model.generate_content([
+                    {
+                        "mime_type": "video/mp4",
+                        "data": video_data
+                    },
+                    prompt
+                ])
+            
+            return response.text
+            
+        except Exception as e:
+            raise Exception(f"Error analyzing video: {str(e)}")
+
 def save_to_file(content, filename):
     """Save content to a text file"""
     with open(filename, 'w', encoding='utf-8') as f:
@@ -118,13 +181,14 @@ def save_to_file(content, filename):
     print(f"\n💾 Saved to: {filename}")
 
 def main():
-    parser = argparse.ArgumentParser(description='Test YouTube video analysis with Gemini API')
+    parser = argparse.ArgumentParser(description='Video analysis with Gemini API (YouTube URLs and local files)')
     parser.add_argument('--api-key', help='Gemini API key (optional if set in environment)')
     
     # Use environment variable for default URL if available
     default_url = os.getenv('DEFAULT_VIDEO_URL', 'https://www.youtube.com/watch?v=_6_iwocubu0')
     parser.add_argument('--video-url', default=default_url, 
                         help='YouTube video URL to analyze')
+    parser.add_argument('--video-file', help='Local video file path to analyze')
     parser.add_argument('--output', help='Output filename (default: video_analysis_<timestamp>.txt)')
     
     subparsers = parser.add_subparsers(dest='command', help='Available commands')
@@ -160,6 +224,14 @@ def main():
     # All command
     subparsers.add_parser('all', help='Run all analysis options')
     
+    # Local video command
+    local_parser = subparsers.add_parser('local', help='Analyze local video file')
+    local_parser.add_argument('video_path', help='Path to local video file')
+    local_parser.add_argument('--analysis-type', choices=['summary', 'transcript', 'topics', 'detailed'], 
+                             default='summary', help='Type of analysis to perform')
+    local_parser.add_argument('--sentences', type=int, default=3, 
+                             help='Number of sentences for summary (only for summary type)')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -167,10 +239,19 @@ def main():
         sys.exit(1)
     
     try:
-        analyzer = YouTubeVideoAnalyzer(api_key=args.api_key)
-        video_url = args.video_url
+        analyzer = VideoAnalyzer(api_key=args.api_key)
         
-        print(f"🎥 Analyzing video: {video_url}")
+        # Determine if we're analyzing YouTube URL or local file
+        if args.command == 'local':
+            video_source = args.video_path
+            print(f"🎥 Analyzing local video: {os.path.basename(video_source)}")
+        else:
+            video_source = args.video_file if args.video_file else args.video_url
+            if args.video_file:
+                print(f"🎥 Analyzing local video: {os.path.basename(video_source)}")
+            else:
+                print(f"🎥 Analyzing YouTube video: {video_source}")
+        
         print("=" * 80)
         
         # Prepare output filename
@@ -181,50 +262,77 @@ def main():
             output_filename = f"video_analysis_{timestamp}.txt"
         
         # Content accumulator
-        full_content = f"YouTube Video Analysis\n{'='*50}\n"
-        full_content += f"Video URL: {video_url}\n"
+        video_type = "Local Video" if (args.command == 'local' or args.video_file) else "YouTube Video"
+        full_content = f"{video_type} Analysis\n{'='*50}\n"
+        full_content += f"Video Source: {video_source}\n"
         full_content += f"Analysis Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         full_content += f"Command: {args.command}\n"
         full_content += "="*50 + "\n\n"
         
-        if args.command == 'summarize':
-            result = analyzer.summarize_video(video_url, args.sentences)
+        if args.command == 'local':
+            result = analyzer.analyze_local_video(video_source, args.analysis_type, args.sentences)
+            analysis_title = {
+                'summary': '📄 Summary',
+                'transcript': '📝 Transcript', 
+                'topics': '🔑 Key Topics',
+                'detailed': '🔍 Detailed Analysis'
+            }.get(args.analysis_type, '📄 Analysis')
+            
+            print(f"\n{analysis_title}:")
+            print(result)
+            full_content += f"{args.analysis_type.upper()}:\n" + "-"*30 + "\n" + result + "\n"
+            
+        elif args.command == 'summarize':
+            if args.video_file:
+                result = analyzer.analyze_local_video(video_source, "summary", args.sentences)
+            else:
+                result = analyzer.summarize_video(video_source, args.sentences)
             print("\n📄 Summary:")
             print(result)
             full_content += "SUMMARY:\n" + "-"*30 + "\n" + result + "\n"
             
         elif args.command == 'transcript':
-            result = analyzer.generate_transcript(video_url, not args.no_timestamps)
+            if args.video_file:
+                result = analyzer.analyze_local_video(video_source, "transcript")
+            else:
+                result = analyzer.generate_transcript(video_source, not args.no_timestamps)
             print("\n📝 Transcript:")
             print(result)
             full_content += "TRANSCRIPT:\n" + "-"*30 + "\n" + result + "\n"
             
         elif args.command == 'quiz':
-            result = analyzer.create_quiz(video_url, args.questions)
+            if args.video_file:
+                result = analyzer.analyze_local_video(video_source, "detailed")
+                result += "\n\n" + analyzer.create_quiz(video_source, args.questions)
+            else:
+                result = analyzer.create_quiz(video_source, args.questions)
             print("\n📋 Quiz:")
             print(result)
             full_content += "QUIZ:\n" + "-"*30 + "\n" + result + "\n"
             
         elif args.command == 'timestamp':
-            result = analyzer.analyze_timestamp(video_url, args.time)
+            result = analyzer.analyze_timestamp(video_source, args.time)
             print(f"\n⏰ Analysis at {args.time}:")
             print(result)
             full_content += f"TIMESTAMP ANALYSIS ({args.time}):\n" + "-"*30 + "\n" + result + "\n"
             
         elif args.command == 'topics':
-            result = analyzer.extract_key_topics(video_url)
+            if args.video_file:
+                result = analyzer.analyze_local_video(video_source, "topics")
+            else:
+                result = analyzer.extract_key_topics(video_source)
             print("\n🔑 Key Topics:")
             print(result)
             full_content += "KEY TOPICS:\n" + "-"*30 + "\n" + result + "\n"
             
         elif args.command == 'question':
-            result = analyzer.answer_question(video_url, args.query)
+            result = analyzer.answer_question(video_source, args.query)
             print("\n💡 Answer:")
             print(result)
             full_content += f"QUESTION: {args.query}\n" + "-"*30 + "\n" + result + "\n"
             
         elif args.command == 'clip':
-            result = analyzer.analyze_video_with_clip(video_url, args.start, args.end)
+            result = analyzer.analyze_video_with_clip(video_source, args.start, args.end)
             print(f"\n🎬 Clip Analysis ({args.start} - {args.end}):")
             print(result)
             full_content += f"CLIP ANALYSIS ({args.start} - {args.end}):\n" + "-"*30 + "\n" + result + "\n"
@@ -233,33 +341,64 @@ def main():
             # Run all analysis options
             print("\n🔄 Running all analysis options...\n")
             
-            # Summary
-            print("1️⃣ VIDEO SUMMARY")
-            print("-" * 40)
-            summary = analyzer.summarize_video(video_url, 5)
-            print(summary)
-            full_content += "1. VIDEO SUMMARY:\n" + "-"*30 + "\n" + summary + "\n\n"
-            
-            # Key Topics
-            print("\n2️⃣ KEY TOPICS")
-            print("-" * 40)
-            topics = analyzer.extract_key_topics(video_url)
-            print(topics)
-            full_content += "2. KEY TOPICS:\n" + "-"*30 + "\n" + topics + "\n\n"
-            
-            # Quiz
-            print("\n3️⃣ QUIZ")
-            print("-" * 40)
-            quiz = analyzer.create_quiz(video_url, 3)
-            print(quiz)
-            full_content += "3. QUIZ:\n" + "-"*30 + "\n" + quiz + "\n\n"
-            
-            # Sample timestamp analysis
-            print("\n4️⃣ SAMPLE TIMESTAMP ANALYSIS (00:30)")
-            print("-" * 40)
-            timestamp_analysis = analyzer.analyze_timestamp(video_url, "00:30")
-            print(timestamp_analysis)
-            full_content += "4. SAMPLE TIMESTAMP ANALYSIS (00:30):\n" + "-"*30 + "\n" + timestamp_analysis + "\n"
+            if args.video_file:
+                # For local videos, run comprehensive analysis
+                # Summary
+                print("1️⃣ VIDEO SUMMARY")
+                print("-" * 40)
+                summary = analyzer.analyze_local_video(video_source, "summary", 5)
+                print(summary)
+                full_content += "1. VIDEO SUMMARY:\n" + "-"*30 + "\n" + summary + "\n\n"
+                
+                # Key Topics
+                print("\n2️⃣ KEY TOPICS") 
+                print("-" * 40)
+                topics = analyzer.analyze_local_video(video_source, "topics")
+                print(topics)
+                full_content += "2. KEY TOPICS:\n" + "-"*30 + "\n" + topics + "\n\n"
+                
+                # Detailed Analysis
+                print("\n3️⃣ DETAILED ANALYSIS")
+                print("-" * 40)
+                detailed = analyzer.analyze_local_video(video_source, "detailed")
+                print(detailed)
+                full_content += "3. DETAILED ANALYSIS:\n" + "-"*30 + "\n" + detailed + "\n\n"
+                
+                # Transcript
+                print("\n4️⃣ TRANSCRIPT")
+                print("-" * 40)
+                transcript = analyzer.analyze_local_video(video_source, "transcript")
+                print(transcript)
+                full_content += "4. TRANSCRIPT:\n" + "-"*30 + "\n" + transcript + "\n"
+            else:
+                # For YouTube videos, use existing methods
+                # Summary
+                print("1️⃣ VIDEO SUMMARY")
+                print("-" * 40)
+                summary = analyzer.summarize_video(video_source, 5)
+                print(summary)
+                full_content += "1. VIDEO SUMMARY:\n" + "-"*30 + "\n" + summary + "\n\n"
+                
+                # Key Topics
+                print("\n2️⃣ KEY TOPICS")
+                print("-" * 40)
+                topics = analyzer.extract_key_topics(video_source)
+                print(topics)
+                full_content += "2. KEY TOPICS:\n" + "-"*30 + "\n" + topics + "\n\n"
+                
+                # Quiz
+                print("\n3️⃣ QUIZ")
+                print("-" * 40)
+                quiz = analyzer.create_quiz(video_source, 3)
+                print(quiz)
+                full_content += "3. QUIZ:\n" + "-"*30 + "\n" + quiz + "\n\n"
+                
+                # Sample timestamp analysis
+                print("\n4️⃣ SAMPLE TIMESTAMP ANALYSIS (00:30)")
+                print("-" * 40)
+                timestamp_analysis = analyzer.analyze_timestamp(video_source, "00:30")
+                print(timestamp_analysis)
+                full_content += "4. SAMPLE TIMESTAMP ANALYSIS (00:30):\n" + "-"*30 + "\n" + timestamp_analysis + "\n"
         
         # Save to file
         save_to_file(full_content, output_filename)
@@ -267,8 +406,13 @@ def main():
         print("\n" + "=" * 80)
         print("✅ Analysis completed successfully!")
         print(f"💾 Results saved to: {output_filename}")
-        print("\n⚠️  LƯU Ý: Gemini có thể không phân tích chính xác nội dung video YouTube.")
-        print("   Để có kết quả chính xác hơn, hãy cung cấp transcript của video.")
+        
+        if args.video_file or args.command == 'local':
+            print("\n✨ Local video analysis completed using Gemini API.")
+            print("   Results should be accurate as the video content was directly processed.")
+        else:
+            print("\n⚠️  LƯU Ý: Gemini có thể không phân tích chính xác nội dung video YouTube.")
+            print("   Để có kết quả chính xác hơn, hãy sử dụng video file local hoặc transcript.")
         
     except Exception as e:
         print(f"\n❌ Error: {str(e)}")

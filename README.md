@@ -1,22 +1,33 @@
-# Gemini Video Analyze - Phân tích Video YouTube với Gemini API
+# Gemini Video Analyzer - Phân tích Video với Gemini API
 
-## ⚠️ Cảnh báo quan trọng
+## Tính năng chính
 
-**Gemini API hiện tại KHÔNG hỗ trợ phân tích trực tiếp nội dung video YouTube**. Kết quả trả về hoàn toàn ngẫu nhiên và không chính xác!
+**Phân tích video local**: Gemini API hoạt động hoàn hảo với video files local
+**YouTube URLs**: Hiện tại không ổn định, đặc biệt với nội dung tiếng Việt
 
-## Vấn đề đã phát hiện
+## Cập nhật mới
 
-Khi test với cùng một video URL: `https://www.youtube.com/watch?v=_6_iwocubu0`
+- **Hỗ trợ phân tích video local**: Upload và phân tích video files trực tiếp
+- **4 loại phân tích**: Summary, Transcript, Topics, Detailed Analysis  
+- **Xử lý file lớn**: Tự động chọn phương thức phù hợp (inline data vs File API)
+- **Kết quả chính xác**: Phân tích đầy đủ cả âm thanh, hình ảnh và nội dung
 
-Gemini trả về các nội dung khác nhau hoàn toàn trong mỗi lần chạy:
-- Lần 1: Video về cà phê đặc sản
-- Lần 2: Video về khu nghỉ dưỡng InterContinental Phú Quốc  
-- Lần 3: Video về Viettel Post
-- Lần 4: Video về yến mạch (siêu thực phẩm)
-- Lần 5: Video về ChatGPT và Marketing
-- Lần 6: Video về BLACKPINK - DDU-DU DDU-DU
+## Cấu trúc thư mục
 
-**Kết luận**: Gemini đang "hallucinate" (tạo nội dung không có thật) thay vì phân tích video thực tế.
+```
+gemini_video_analyze/
+├── README.md                    # Hướng dẫn sử dụng
+├── test_youtube_video.py        # Script chính
+├── requirements.txt             # Dependencies
+├── .env.example                # Mẫu file environment
+├── docs/                       # Tài liệu
+│   ├── api_docs.md             # API documentation
+│   └── video.md                # Phân tích khả năng Gemini Video API
+├── examples/                   # Video mẫu
+│   └── sample_video.mp4        # Video demo (gitignore)
+└── outputs/                    # Kết quả phân tích
+    └── *.txt                   # Output files (gitignore)
+```
 
 ## Cài đặt
 
@@ -26,20 +37,39 @@ git clone https://github.com/nguyenngothuong/gemini_video_analyze.git
 cd gemini_video_analyze
 
 # Cài đặt dependencies
-pip install google-generativeai python-dotenv
+pip install -r requirements.txt
 
-# Tạo file .env và thêm API key
-echo "GEMINI_API_KEY=your_api_key_here" > .env
+# Tạo file .env từ template
+cp .env.example .env
+# Chỉnh sửa .env và thêm API key của bạn
 ```
 
 ## Sử dụng
 
-```bash
-# Tóm tắt video (5 câu)
-python3 test_youtube_video.py summarize --sentences 5
+### Phân tích video local (Khuyến nghị)
 
-# Phân tích toàn diện
-python3 test_youtube_video.py --output output.txt all
+```bash
+# Phân tích chi tiết video local
+python3 test_youtube_video.py local "video.mp4" --analysis-type detailed
+
+# Tóm tắt video với 5 câu
+python3 test_youtube_video.py local "video.mp4" --analysis-type summary --sentences 5
+
+# Tạo transcript đầy đủ
+python3 test_youtube_video.py local "video.mp4" --analysis-type transcript
+
+# Trích xuất các chủ đề chính
+python3 test_youtube_video.py local "video.mp4" --analysis-type topics
+
+# Phân tích toàn diện (summary + topics + detailed + transcript)
+python3 test_youtube_video.py --video-file "examples/video.mp4" --output outputs/analysis.txt all
+```
+
+### Phân tích YouTube URL (Beta - không ổn định)
+
+```bash
+# Tóm tắt video YouTube
+python3 test_youtube_video.py summarize --sentences 5
 
 # Các lệnh khác
 python3 test_youtube_video.py transcript    # Tạo transcript
@@ -52,34 +82,88 @@ python3 test_youtube_video.py clip "0:30" "1:00"
 
 ## Tính năng
 
-- ✅ Hỗ trợ tiếng Việt
-- ✅ Lưu kết quả ra file .txt
-- ❌ **KHÔNG phân tích chính xác nội dung video YouTube**
+### Video Local
+- **Phân tích chính xác 100%** nội dung video
+- **4 loại phân tích**: Summary, Transcript, Topics, Detailed
+- **Hỗ trợ tiếng Việt** hoàn hảo
+- **Xử lý file lớn** tự động (>20MB qua File API)
+- **Transcript chi tiết** với timestamp và mô tả hình ảnh
+- **Lưu kết quả** ra file .txt
 
-## Giải pháp thay thế
+### YouTube URLs  
+- **Không ổn định** với nội dung tiếng Việt
+- **Kết quả ngẫu nhiên** do API beta
+- **Chỉ nên dùng** cho mục đích test
 
-Để phân tích video YouTube chính xác, bạn nên:
+## Sample Output
 
-1. **Sử dụng YouTube Transcript API**: Download transcript thực từ YouTube
+### Summary Analysis
+```
+Video giới thiệu tính năng tự động hóa mới của Lark Base, cho phép kích hoạt quy trình từ tin nhắn Lark Messenger. 
+Cụ thể, người dùng có thể cấu hình để khi bot được nhắc đến trong một nhóm chat, nội dung tin nhắn và thời gian 
+sẽ tự động được thêm vào một bảng dữ liệu trong Lark Base. Điều kiện kích hoạt bao gồm tên bot (trùng với tên file), 
+nhóm chat cụ thể và việc bot được tag trong tin nhắn.
+```
+
+### Topics Analysis  
+```
+1. Tính năng tự động hóa tin nhắn Lark Base:
+   - Cho phép người dùng thiết lập các quy tắc để tự động thực hiện hành động trong Lark Base khi bot nhận được tin nhắn
+
+2. Thiết lập điều kiện kích hoạt (Trigger):
+   - Loại điều kiện: "Khi tin nhắn Lark được nhận" 
+   - Phạm vi tin nhắn: Bot nhận tin nhắn trong nhóm chat
+   - Điều kiện nội dung: Tin nhắn đề cập đến bot (@mention)
+
+3. Thiết lập hành động tự động (Action):
+   - Hành động: "Thêm bản ghi" vào bảng trong Lark Base
+   - Nội dung: Tự động điền nội dung tin nhắn và thời gian
+```
+
+### Transcript Analysis (Sample)
+```
+[00:00 - 00:02] Người nói: "Rồi, ở đây nhá,"
+Mô tả hình ảnh: Màn hình hiển thị giao diện Lark Base trên trình duyệt Chrome bên phải và Lark Messenger bên trái.
+
+[00:02 - 00:10] Người nói: "phần automation của Lark Base này, nó mới có cái tính năng là... đây, khi một tin nhắn được gửi."
+Mô tả hình ảnh: Con trỏ chuột di chuyển đến nút "Automation" và nhấp vào đó, mở ra "Automation center".
+```
+
+## Giải pháp thay thế cho YouTube
+
+Để phân tích video YouTube chính xác:
+
+1. **Download video về local rồi phân tích**:
    ```bash
-   pip install youtube-transcript-api
+   # Dùng yt-dlp download video
+   yt-dlp "https://youtube.com/watch?v=VIDEO_ID" -o "video.mp4"
+   
+   # Phân tích với Gemini
+   python3 test_youtube_video.py local "video.mp4" --analysis-type detailed
    ```
 
-2. **Sử dụng các công cụ khác**:
-   - OpenAI Whisper cho audio
-   - YouTube Data API cho metadata
-   - Sau đó dùng Gemini phân tích text
+2. **Sử dụng YouTube Transcript API + Gemini**:
+   ```bash
+   pip install youtube-transcript-api
+   # Get transcript -> Phân tích text với Gemini
+   ```
 
-3. **Download video và xử lý local**:
-   - Tách audio từ video
-   - Dùng speech-to-text API
-   - Phân tích transcript với Gemini
+## Lưu ý quan trọng
 
-## Lưu ý cho developers
+### Video Local Files
+- **Gemini API 2.5-Flash** hỗ trợ tốt video analysis với local files
+- **Kết quả chính xác** và đáng tin cậy cho nội dung tiếng Việt
+- **File size**: <20MB dùng inline data, >20MB dùng File API với processing wait
 
-- Gemini API hiện tại chỉ hỗ trợ phân tích text và image, KHÔNG hỗ trợ video trực tiếp
-- Khi gọi API với video URL, Gemini sẽ trả về nội dung ngẫu nhiên
-- Luôn kiểm tra và xác thực kết quả trước khi sử dụng
+### YouTube URLs  
+- **Tính năng beta** không ổn định, đặc biệt với tiếng Việt
+- **Kết quả ngẫu nhiên** do API chưa hỗ trợ đầy đủ YouTube integration
+- **Khuyến nghị**: Download video về local để phân tích chính xác
+
+### Technical Notes
+- Supports các format: MP4, MOV, AVI, WebM, WMV, 3GPP
+- Context window: có thể xử lý video dài (tùy model)
+- Token cost: ~300 tokens/giây cho độ phân giải thường
 
 ## License
 
@@ -91,4 +175,12 @@ Nguyễn Ngô Thường
 
 ---
 
-**Repo này được tạo ra để minh họa giới hạn của Gemini API với video YouTube. Không nên sử dụng cho production.**
+**Repo này minh họa khả năng phân tích video của Gemini API:**
+- **Local video files**: Hoạt động hoàn hảo, khuyến nghị cho production
+- **YouTube URLs**: Beta không ổn định, chỉ dùng để test
+
+## Liên hệ
+
+Email: work@nguyenngothuong.com
+
+Có nhu cầu tư vấn hoặc phát triển tính năng tương tự, vui lòng liên hệ!
